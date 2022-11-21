@@ -1,7 +1,9 @@
 # WebServer
 
 I'm designing a webserver.
-References:https://linux.die.net/man/2/sendmsg
+References:
+
+https://linux.die.net/man/2/sendmsg
 https://stillat.com/blog/2014/04/02/how-does-php-work-with-the-web-server-and-browser
 https://stackoverflow.com/questions/4186392/php-passing-get-in-the-linux-command-prompt
 https://www.codecademy.com/articles/language/go
