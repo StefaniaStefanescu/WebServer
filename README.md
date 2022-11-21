@@ -1,7 +1,11 @@
 # WebServer
 
 I'm designing a webserver.
-References:
-file:///C:/Users/Asus/Desktop/Anul%203/PSOP/Operating%20System%20-%20Multi-Threading.mhtml
-file:///C:/Users/Asus/Desktop/Anul%203/PSOP/Reading_image_via_web_server.pdf
-file:///C:/Users/Asus/Desktop/Anul%203/PSOP/File%20Servers_%20Advanced%20Multithreaded%20Server%20(AMS)%20_%20Objectivity.mhtml
+References:https://linux.die.net/man/2/sendmsg
+https://stillat.com/blog/2014/04/02/how-does-php-work-with-the-web-server-and-browser
+https://stackoverflow.com/questions/4186392/php-passing-get-in-the-linux-command-prompt
+https://www.codecademy.com/articles/language/go
+https://www.ibm.com/docs/en/aix/7.2?topic=programming-using-condition-variables
+https://www.cs.cmu.edu/afs/cs/academic/class/15492-f07/www/pthreads.html
+https://www.ibm.com/docs/en/i/7.2?topic=threads-mutexes
+https://en.wikipedia.org/wiki/Thread_pool
