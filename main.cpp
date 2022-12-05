@@ -20,6 +20,10 @@
 #include<ctime>
 using namespace std;
 
+
+//am de rezolvat faptul ca la multe threaduri mi se deschid fisierele concurent
+
+//Comanda testare: ab -n 1000 -c 21 http://127.0.0.1:8080/index.html
 ////////////////////////////////////////////////////COADA DE THREADURI//////////////////////////////////////////////////////////////////////////////////
 struct node {
     struct node*next;
@@ -57,20 +61,42 @@ int* dequeue(){
 ///////////////////////////////////////////////CLASA LOGGER /////////////////////////////////////////////////////////////////////////////////////////////
 class Logger{
     public:
-        static Logger& getInstance();
+        static Logger& getInstance(string err,string logg);
         static void destroyInstance();
-        static void log_request(string logfile, string buffer);
-        static void log_error(string errfile,string buffer);
+        void log_request(string buffer);
+        void log_error(string buffer);
+        ofstream error_file;
+        ofstream logger_file;
     private:
+        
         static Logger*instance;
-        Logger(){};
+        Logger(string err, string logg){ 
+            logger_file.open(logg,ios_base::app);
+            if(logger_file.fail()){
+               printf("Error on opening request file\n");
+               exit(0);
+            }else{
+                printf("Logger file opened\n");
+            }
+            
+            error_file.open(err, ios_base::app);
+            if(error_file.fail()){
+                 printf("Error on opening error file\n");
+                exit(0);
+            }else{
+                printf("Error file opened\n");
+            }
+        };
         Logger(const Logger&){};
-        ~Logger(){};
+        ~Logger(){
+             this->logger_file.close();
+             this->error_file.close();
+        };
 };
 Logger*Logger::instance = nullptr;
-Logger& Logger::getInstance(){
+Logger& Logger::getInstance(string err,string logg){
     if(!Logger::instance){
-        Logger::instance=new Logger();
+        Logger::instance=new Logger(err,logg);
     }
     return (*Logger::instance);
 }
@@ -80,24 +106,23 @@ void Logger::destroyInstance(){
         Logger::instance=nullptr;
     }
 }
-void Logger::log_request(string logfile,string buffer){
-    ofstream loggfile;
-    loggfile.open(logfile);
-    time_t t=time(0);
-    m*now=localtime(&t);
-    loggfile<<(now->tm_year+1900)<<"-"<<(now->tm_mon+1)<<"-"<<(now->tm_mday)<<"-"<<(now->tm_hour)<<"::::"<<endl;
-    loggfile<<buffer<<endl;
-    loggfile.close();
-
-}
-void Logger::log_error(string errfile,string buffer){
-    ofstream errorfile;
-    errorfile.open(errfile);
+void Logger::log_request(string buffer){
+    
     time_t t=time(0);
     tm*now=localtime(&t);
-    errorfile<<(now->tm_year+1900)<<"-"<<(now->tm_mon+1)<<"-"<<(now->tm_mday)<<"-"<<(now->tm_hour)<<"::::"<<endl;
-    errorfile<<buffer<<endl;
-    errorfile.close();
+    Logger::logger_file<<"Request time:"<<(now->tm_year+1900)<<"-"<<(now->tm_mon+1)<<"-"<<(now->tm_mday)<<"-"<<(now->tm_hour)<<":"<<(now->tm_min)<<":"<<(now->tm_sec)<<endl;
+    Logger::logger_file<<buffer<<endl;
+   
+
+}
+void Logger::log_error(string buffer){
+
+    printf("Error file opened\n...");
+    time_t t=time(0);
+    tm*now=localtime(&t);
+    Logger::error_file<<"Error time:"<<(now->tm_year+1900)<<"-"<<(now->tm_mon+1)<<"-"<<(now->tm_mday)<<"-"<<(now->tm_hour)<<":"<<(now->tm_min)<<":"<<(now->tm_sec)<<endl;
+    Logger::error_file<<buffer<<endl;
+    
 }
 ///////////////////////////////////////////////CLASE DICTIONAR////////////////////////////////////////////////////////////////////////////////////////////
 class ContentPair{
@@ -215,9 +240,9 @@ string server::get_web_root(){
 void server::print_server_info(){
     cout<<"Server port::"<<this->PORT<<endl;
     cout<<"Server root::"<<this->WEB_ROOT<<endl;
-    cout<<"Server maximum thread number"<<this->THREAD_NUMBER<<endl;
-    cout<<"Error file:"<<this->ERROR_FILE<<endl;
-    cout<<"Log file:"<<this->LOG_FILE<<endl;
+    cout<<"Server maximum thread number::"<<this->THREAD_NUMBER<<endl;
+    cout<<"Error file::"<<this->ERROR_FILE<<endl;
+    cout<<"Log file::"<<this->LOG_FILE<<endl;
 }
 void server::set_file_descriptor(int fd){
     this->server_file_descriptor=fd;
@@ -231,8 +256,11 @@ int server::get_file_descriptor(){
 /// @brief 
 server*webserver=new server("/home/nia/Desktop/serverweb/server_web/configurare.txt");
 pthread_mutex_t mutex;
+//am nevoie ca threadurile sa astepte pana cand apare ceva de facut.
+pthread_cond_t conditional_variable = PTHREAD_COND_INITIALIZER;  //variabila conditionala, am nevoie de ea a.i serverul meu sa nu mai utilizeze toate resursele cpu
 pthread_t thread_pool[1000];  //aici imi zice ca trebuie sa am mereu o valoare constanta ??
-static Logger& logger = Logger::getInstance();
+Logger& logger = Logger::getInstance(webserver->get_error_file(), webserver->get_log_gile());
+
 
 
 
@@ -346,13 +374,16 @@ int get_total_size_for_header(char path[]){
     if(file_descriptor<0){
         //aici o sa scriu in logger
         printf("Cannot open file %s with error:: %d\n",path,file_descriptor);
-        logger.log_error(webserver->get_error_file(),can_not_open_file(path,file_descriptor));
+        logger.log_error(can_not_open_file(path,file_descriptor));
         return 0;
     }
     fstat(file_descriptor,&stats_buffer);   
     int total_size=stats_buffer.st_size;
     close(file_descriptor);
     return total_size;
+}
+void fork_php(){
+
 }
 
 char* string_to_char(string str){
@@ -361,19 +392,63 @@ char* string_to_char(string str){
     strcpy(char_arr,str.c_str());
     return char_arr;
 }
+void php_interpreter(char*filename){
+    //creez pipe
+    char*arguments[20];
+    int pipe_descriptors[2];
+    int pipeline;
+    pid_t pid=0,pid1=0;
+    pipeline=pipe(pipe_descriptors);
+    pid1=fork();
+    pid=getpid();
+    switch(pid1){
+        case -1:
+            logger.log_error("Error on fork()\n");
+            break;
+        case 0: /*Child process*/
+            if(close(pipe_descriptors[0])==-1){ 
+                logger.log_error("Error on closing fd child\n");
+            }
+            close(1); 
+            dup(pipe_descriptors[1]);
+            /*initializare argumente pentru comanda*/
+            //arguments[0]=
+            //arguments[1]=
+            //arguments[2]=
+            execvp(arguments[0],arguments);
+            break;
+        default:
+            if(close(pipe_descriptors[1])==-1){
+                logger.log_error("Error on closing fd parent\n");
+            }
+            close(0); 
+            dup(pipe_descriptors[0]);
+            break;       
+    }
+
+
+}
+void remove_file(char*filename){
+    char *binarypath="/bin/rm";
+    char*arg1="-f";
+    char*arg2="filename";
+
+    execl(binarypath,binarypath,arg1,arg2,NULL);
+    return ;
+}
 
 void* connection_handle(void*client_socket){
-    logger.log_request(webserver->get_log_gile(),"Handling connection....");
+    logger.log_request("Handling connection....");
     int new_socket=*((int*)client_socket);
     long value_read;
     free(client_socket);
     char buffer[30000]={0};
     value_read=read(new_socket,buffer,30000);
     printf("\n BUFF MSG:%s \n",buffer);
-    logger.log_request(webserver->get_log_gile(),buffer);
+    logger.log_request(buffer);
     char*parse_string_method=parse_method(buffer," ");
     printf("Client request:%s\n",parse_string_method);
-    logger.log_request(webserver->get_log_gile(),parse_string_method);
+    logger.log_request(parse_string_method);
     char*parse_string=parse(buffer," ");
     char*copy=(char*)malloc(strlen(parse_string)+1);
     strcpy(copy,parse_string);
@@ -427,6 +502,20 @@ void* connection_handle(void*client_socket){
             Header.add_value("Content-Type","video/mp2t");
             send_message(new_socket,string_to_char(path_head),string_to_char(Header.merge_all()));
             
+        }else if((parse_extension[0]=='p'&&parse_extension[1]=='h'&&parse_extension[2]=='p') || (parse_extension[0]=='p'&&parse_extension[1]=='h'&&parse_extension[2]=='t' &&parse_extension[2]=='m' && parse_extension[2]=='l')){
+            //functie in care trebuie sa transmit catre interpretorul php fisierul .php
+            path_head+=parse_string;
+            //pipe
+            //fork+thread??
+            //fork_php()
+            php_interpreter(string_to_char(path_head));
+            Header.add_value("Content-Type","text/html");
+            char*file="file.txt";
+            send_message(new_socket,file,string_to_char(Header.merge_all()));
+            remove_file(file);
+
+
+            
         }else{
             path_head+=parse_string;
             Header.add_value("Content-Type","text/plain");
@@ -434,7 +523,7 @@ void* connection_handle(void*client_socket){
             }
         
         printf("------Sent!\n");
-        logger.log_request(webserver->get_log_gile(),"----------------Sent---------------");
+        logger.log_request("----------------Sent---------------");
 
       
     }else if(parse_string_method[0]=='P'&&parse_string_method[1]=='O'&&parse_string_method[2]=='S'&&parse_string_method[3]=='T'){
@@ -447,14 +536,19 @@ void* connection_handle(void*client_socket){
         close(new_socket);
         free(copy);
         printf("Closing thread\n");
-        logger.log_request(webserver->get_log_gile(),"Handled the connection so far..");
+        logger.log_request("Handled the connection so far..");
         return NULL;
 }
 
 void*thread_pool_function(void*arg){
     while(1){
         pthread_mutex_lock(&mutex);
-        int *pclient=dequeue();
+        
+        int *pclient;
+        if((pclient = dequeue())==NULL){
+            pthread_cond_wait(&conditional_variable,&mutex);
+            pclient=dequeue();
+        }
         pthread_mutex_unlock(&mutex);
         
         if(pclient!=NULL){
@@ -476,8 +570,8 @@ int main(int argc,const char*argv[]){
     }
     if((server_file_descriptor=socket(AF_INET,SOCK_STREAM,0))==0)
     {
-            perror("Error in creating server descriptor:");
-            logger.log_error(webserver->get_error_file(),"Error on creating server descriptor");
+            //perror("Error in creating server descriptor:");
+            logger.log_error("Error on creating server descriptor");
             exit(-1);
     }
     webserver->set_file_descriptor(server_file_descriptor);
@@ -486,36 +580,37 @@ int main(int argc,const char*argv[]){
     address.sin_port=htons(webserver->get_port());
     memset(address.sin_zero,'\0',sizeof(address.sin_zero));
     if(bind(server_file_descriptor,(struct sockaddr*)&address,sizeof(address))<0){
-        perror("Error while binding:");
-        logger.log_error(webserver->get_error_file(),"Error while binding");
+        //perror("Error while binding:");
+        logger.log_error("Error while binding");
         close(server_file_descriptor);
         exit(-1);
     }
     if(listen(server_file_descriptor,10)<0){
-        perror("Error while listening:");
-        logger.log_error(webserver->get_error_file(),"Error while listening");
+        //perror("Error while listening:");
+        logger.log_error("Error while listening");
         exit(-1);
     }
   
    
    while(1){
        printf("LISTENING....\n");
-       logger.log_request(webserver->get_log_gile(),"Server Started\nListening.....");
+       logger.log_request("Server Started\nListening.....");
 
        if((new_socket=accept(server_file_descriptor,(struct sockaddr*)&address,(socklen_t*)&address_length))<0){
-          perror("Error on accepting connection:");
-          logger.log_error(webserver->get_error_file(),"Error on accepting connection\n");
+          //perror("Error on accepting connection:");
+          logger.log_error("Error on accepting connection\n");
           exit(-1);
        }
         int*p_client=(int*)malloc(sizeof(int));
         *p_client=new_socket;
         pthread_mutex_lock(&mutex);
         enqueue(p_client);
+        pthread_cond_signal(&conditional_variable);
         pthread_mutex_unlock(&mutex);
 
    }
    printf("Closing server...\n");
-   logger.log_request(webserver->get_log_gile(),"Closing server...");
+   logger.log_request("Closing server...");
    close(server_file_descriptor);
    return 0;
 

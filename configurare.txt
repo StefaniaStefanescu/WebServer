@@ -1,0 +1,6 @@
+PORT 8080
+WEB_ROOT /home/nia/Desktop/serverweb
+THREAD_NUMBER 20
+ERROR_FILE /home/nia/Desktop/serverweb/server_web/erori.txt
+LOG_FILE /home/nia/Desktop/serverweb/server_web/log.txt
+
