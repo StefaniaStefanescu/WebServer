@@ -7,6 +7,7 @@
 #include<sys/types.h>
 #include<fcntl.h>
 #include<sys/sendfile.h>
+#include<sys/wait.h>
 #include<sys/stat.h>
 #include<errno.h>
 #include<arpa/inet.h>
@@ -200,7 +201,11 @@ class server{
         int server_file_descriptor;
         string ERROR_FILE;
         string LOG_FILE;
+        
+        
     public:
+        string PHP_FILE;
+        string PHP_USE;
         server(string configuration_file);
         ~server(){};
         int get_port();
@@ -221,6 +226,8 @@ server::server(string configuration_file){
     confile>>message>>this->THREAD_NUMBER;
     confile>>message>>this->ERROR_FILE;
     confile>>message>>this->LOG_FILE;
+    confile>>message>>this->PHP_FILE;
+    confile>>message>>this->PHP_USE;
 }
  int server::get_port(){
     return this->PORT;
@@ -392,39 +399,47 @@ char* string_to_char(string str){
     strcpy(char_arr,str.c_str());
     return char_arr;
 }
-void php_interpreter(char*filename){
+
+
+void php_interpreter(char*filename, char*token){
     //creez pipe
-    char*arguments[20];
-    int pipe_descriptors[2];
-    int pipeline;
-    pid_t pid=0,pid1=0;
-    pipeline=pipe(pipe_descriptors);
-    pid1=fork();
-    pid=getpid();
-    switch(pid1){
-        case -1:
-            logger.log_error("Error on fork()\n");
-            break;
-        case 0: /*Child process*/
-            if(close(pipe_descriptors[0])==-1){ 
-                logger.log_error("Error on closing fd child\n");
-            }
-            close(1); 
-            dup(pipe_descriptors[1]);
-            /*initializare argumente pentru comanda*/
-            //arguments[0]=
-            //arguments[1]=
-            //arguments[2]=
-            execvp(arguments[0],arguments);
-            break;
-        default:
-            if(close(pipe_descriptors[1])==-1){
-                logger.log_error("Error on closing fd parent\n");
-            }
-            close(0); 
-            dup(pipe_descriptors[0]);
-            break;       
+    int fd[2];
+    pid_t pid;
+    char*arguments[]={"php", "-c",string_to_char(webserver->PHP_FILE), string_to_char(webserver->PHP_USE),token,NULL};
+    if (-1 == pipe(fd)) {
+        perror("pipe");
+        exit(EXIT_FAILURE);
     }
+
+    if (-1 == (pid = fork())) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid == 0) {
+        /* child */
+        close(fd[0]);
+        dup2(fd[1], STDOUT_FILENO);
+        close(fd[1]);
+        execvp("php",arguments);
+        /*i won't go there if i succed.*/
+        perror("execvp");
+        exit(EXIT_FAILURE);
+    }
+
+    /* parent */
+    char result;
+    close(fd[1]);
+    int output=open("disable.txt", O_WRONLY | O_CREAT | O_TRUNC,0644);
+    if(output<0){
+        perror("disable.txt");
+        exit(1);
+    }
+    while (read(fd[0], &result, 1) > 0)
+        //write(STDOUT_FILENO, &result, 1);
+        write(output,&result,1);
+    close(fd[0]);
+    wait(NULL);
 
 
 }
@@ -505,15 +520,20 @@ void* connection_handle(void*client_socket){
         }else if((parse_extension[0]=='p'&&parse_extension[1]=='h'&&parse_extension[2]=='p') || (parse_extension[0]=='p'&&parse_extension[1]=='h'&&parse_extension[2]=='t' &&parse_extension[2]=='m' && parse_extension[2]=='l')){
             //functie in care trebuie sa transmit catre interpretorul php fisierul .php
             path_head+=parse_string;
-            //pipe
-            //fork+thread??
-            //fork_php()
-            php_interpreter(string_to_char(path_head));
+            printf("PHP REQUEST: %s\n",string_to_char(path_head));
+            /*   /home/nia/Desktop/serverweb/handle.php?name=adsad&email=saddsa   */
+            char*token;
+            token=strtok(string_to_char(path_head),"?");
+            char*file=strdup(token);
+            token=strtok(NULL," \n");
+            printf("\n\nTOKEN: %s\n\n",token);
+            
+            char*to_be_interpreted=strdup(token);
+            
+            
+            php_interpreter(file, to_be_interpreted);
             Header.add_value("Content-Type","text/html");
-            char*file="file.txt";
-            send_message(new_socket,file,string_to_char(Header.merge_all()));
-            remove_file(file);
-
+            send_message(new_socket,"/home/nia/Desktop/serverweb/server_web/disable.txt",string_to_char(Header.merge_all()));
 
             
         }else{
